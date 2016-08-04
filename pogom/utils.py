@@ -11,6 +11,12 @@ import logging
 import shutil
 import requests
 
+import httplib2
+import requests
+import simplejson as json
+import smtplib
+
+
 from importlib import import_module
 from s2sphere import LatLng, CellId
 from geopy.geocoders import GoogleV3
@@ -118,6 +124,9 @@ def get_args():
     parser.add_argument('--db-max_connections', help='Max connections for the database', type=int, default=5)
     parser.add_argument('-wh', '--webhook', help='Define URL(s) to POST webhook information to',
                         nargs='*', default=False, dest='webhooks')
+    parser.add_argument('-pf', '--profile',
+                        help='Set the profile, include emails to notify and interested Pokemons to to load',
+                        default='profile.json')
     parser.set_defaults(DEBUG=False)
 
     args = parser.parse_args()
@@ -303,3 +312,56 @@ def get_encryption_lib_path():
         raise Exception(err)
 
     return lib_path
+
+def load_profile():
+    filename = 'profile.json'
+    if get_args().profile:
+        filename = get_args().profile
+    file_path = os.path.dirname(os.path.realpath('runserver.py')) + '/' + filename
+
+    with open(file_path) as f:
+        profile = json.loads(f.read())
+
+        if not profile['emails']:
+            raise ImportError('No notification emails in profile.json.')
+        else:
+            email_to = profile['emails']
+
+        if not profile['interested_pokemons']:
+            raise ImportError('No interested Pokenmon IDs specified in profile.json.')
+        else:
+            interested = profile['interested_pokemons']
+        return email_to, interested
+
+
+def send_email(username, password, email_to, message):
+    try:
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.ehlo()
+        server.starttls()
+        server.login(username, password)
+        server.sendmail(username, email_to, message.encode('utf-8').strip())
+        server.close()
+        log.info('successfully sent the mail')
+    except:
+        log.error("failed to send mail: " + password)
+
+def shurl(longUrl):
+    API_KEY = 'AIzaSyDIledAeDEV0TytxRu9UkCEILIOlmrhiL0'
+    try:
+        API_KEY
+    except NameError:
+        apiUrl = 'https://www.googleapis.com/urlshortener/v1/url'
+    else:
+        apiUrl = 'https://www.googleapis.com/urlshortener/v1/url?key=%s' % API_KEY
+
+    headers = {"Content-type": "application/json"}
+    data = {"longUrl": longUrl}
+    h = httplib2.Http('.cache')
+    try:
+        headers, response = h.request(apiUrl, "POST", json.dumps(data), headers)
+        short_url = json.loads(response)['id']
+
+    except Exception, e:
+        print "unexpected error %s" % e
+    return short_url
