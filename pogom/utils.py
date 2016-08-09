@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import logging
 import shutil
 import requests
+import platform
 
 import httplib2
 import requests
@@ -114,6 +115,9 @@ def get_args():
     parser.add_argument('-nk', '--no-pokestops',
                         help='Disables PokeStops from the map (including parsing them into local db)',
                         action='store_true', default=False)
+    parser.add_argument('-pd', '--purge-data',
+                        help='Clear pokemon from database this many hours after they disappear \
+                        (0 to disable)', type=int, default=0)
     parser.add_argument('--db-type', help='Type of database to be used (default: sqlite)',
                         default='sqlite')
     parser.add_argument('--db-name', help='Name of the database to be used')
@@ -295,12 +299,28 @@ def send_to_webhook(message_type, message):
 
 def get_encryption_lib_path():
     lib_path = ""
-    if sys.platform == "win32":
-        lib_path = os.path.join(os.path.dirname(__file__), "encrypt.dll")
+    # win32 doesn't mean necessarily 32 bits
+    if sys.platform == "win32" or sys.platform == "cygwin":
+        if platform.architecture()[0] == '64bit':
+            lib_path = os.path.join(os.path.dirname(__file__), "encrypt64bit.dll")
+        else:
+            lib_path = os.path.join(os.path.dirname(__file__), "encrypt32bit.dll")
+
     elif sys.platform == "darwin":
-        lib_path = os.path.join(os.path.dirname(__file__), "libencrypt-osx.so")
+        lib_path = os.path.join(os.path.dirname(__file__), "libencrypt-osx-64.so")
+
+    elif os.uname()[4].startswith("arm") and platform.architecture()[0] == '32bit':
+        lib_path = os.path.join(os.path.dirname(__file__), "libencrypt-linux-arm-32.so")
+
     elif sys.platform.startswith('linux'):
-        lib_path = os.path.join(os.path.dirname(__file__), "libencrypt.so")
+        if platform.architecture()[0] == '64bit':
+            lib_path = os.path.join(os.path.dirname(__file__), "libencrypt-linux-x86-64.so")
+        else:
+            lib_path = os.path.join(os.path.dirname(__file__), "libencrypt-linux-x86-32.so")
+
+    elif sys.platform.startswith('freebsd-10'):
+        lib_path = os.path.join(os.path.dirname(__file__), "libencrypt-freebsd10-64.so") 
+
     else:
         err = "Unexpected/unsupported platform '{}'".format(sys.platform)
         log.error(err)
