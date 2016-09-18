@@ -24,7 +24,19 @@ from .utils import get_pokemon_name, get_pokemon_rarity, get_pokemon_types, get_
 from .transform import transform_from_wgs_to_gcj, get_new_coords
 from .customLog import printPokemon
 
+from pgoapi.utilities import get_pos_by_name
+from pogom.utils import get_args, load_profile, send_email, shurl
+
+POKE_GROUP = load_profile()[1]
+EMAIL_TO = load_profile()[0]
+SENT = []
+position = get_pos_by_name(get_args().location)
+map_center = str(position[0]) + ',' + str(position[1])
+username = get_args().username[0]
+password = get_args().password[0]
+
 log = logging.getLogger(__name__)
+# log.setLevel(logging.ERROR)
 
 args = get_args()
 flaskDb = FlaskDB()
@@ -710,6 +722,57 @@ def parse_map(args, map_dict, step_location, db_update_queue, wh_update_queue):
         'longitude': step_location[1],
         'last_modified': datetime.utcnow()
     }}))
+
+    if len(pokemons) > 0 and len(EMAIL_TO) > 0 and len(POKE_GROUP) > 0:
+        for p in pokemons.values():
+            # log.info(p)
+            pokemon_name = get_pokemon_name(p['pokemon_id']).lower()
+            pokemon_id = str(p['pokemon_id'])
+
+            if pokemon_id in POKE_GROUP and p['encounter_id'] not in SENT:
+                SENT.append(p['encounter_id'])
+
+                if len(SENT) > 10000:
+                    del SENT[0:1000]
+
+                loc = str(p['latitude']) + ',' + str(p['longitude'])
+                icon = 'http://media.pldh.net/pokexycons/' + pokemon_id.zfill(3) + '.png'
+                disappear_time = p['disappear_time']
+                short_msg = pokemon_name + ' will disappear at ' + disappear_time.strftime('%X') + '\n'
+                img_url = 'https://maps.googleapis.com/maps/api/staticmap' \
+                          '?center=' + map_center + ')}' \
+                                                    '&zoom=15&size=640x640&markers=icon:' \
+                          + icon.encode('utf-8').strip() + '%7C' \
+                          + loc + '&key=AIzaSyDn-kxyG5NrrpFSft95w30SWR3YETJ5xDU'
+                img_url2 = 'https://maps.googleapis.com/maps/api/staticmap' \
+                           '?center=' + map_center + ')}' \
+                                                     '&zoom=17&size=640x640&markers=icon:' \
+                           + icon.encode('utf-8').strip() + '%7C' \
+                           + loc + '&key=AIzaSyDn-kxyG5NrrpFSft95w30SWR3YETJ5xDU'
+
+                short_url = shurl(img_url)
+                short_url2 = shurl(img_url2)
+                if short_url:
+                    url = short_url
+                else:
+                    url = img_url
+                if short_url2:
+                    url2 = short_url2
+                else:
+                    url2 = img_url2
+
+                message = "\r\n".join([
+                    "Content-Type: text/html; charset=\"utf-8\""
+                    "From: %s" % username,
+                    "To: %s" % 'PokemonFan',
+                    "Subject: %s" % pokemon_name,
+                    "",
+                    "<html><body><p>" + short_msg + "</p>" + "<img src=\"" + url + "\" />\r\n"
+                    + "<img src=\"" + url2 + "\" /></body></html>"
+                ])
+
+                log.info("Send TXT: " + message)
+                send_email(username, password, EMAIL_TO, message)
 
     return {
         'count': len(pokemons) + len(pokestops) + len(gyms),
